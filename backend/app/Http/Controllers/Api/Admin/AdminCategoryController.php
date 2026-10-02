@@ -10,6 +10,7 @@ use App\Models\ManualOrderField;
 use App\Services\CloudinaryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminCategoryController extends Controller
 {
@@ -18,15 +19,24 @@ class AdminCategoryController extends Controller
     public function index(): JsonResponse
     {
         try {
-            $categories = Category::with(['children', 'manualOrderFields'])
-                ->whereNull('parent_id')
+            // Get roots + children in 2 queries (no N+1)
+            $roots = Category::whereNull('parent_id')
                 ->orderBy('sort_order')
                 ->get();
 
-            return response()->json(['categories' => $categories]);
+            $allChildren = Category::whereNotNull('parent_id')
+                ->with('manualOrderFields')
+                ->orderBy('sort_order')
+                ->get()
+                ->groupBy('parent_id');
+
+            $roots->each(function ($root) use ($allChildren) {
+                $root->children = $allChildren->get($root->id, collect())->values();
+            });
+
+            return response()->json(['categories' => $roots]);
         } catch (\Throwable $e) {
             report($e);
-
             return response()->json(['message' => 'Failed to load categories', 'error' => $e->getMessage()], 500);
         }
     }
@@ -46,7 +56,6 @@ class AdminCategoryController extends Controller
             return response()->json(['category' => $category], 201);
         } catch (\Throwable $e) {
             report($e);
-
             return response()->json(['message' => 'Failed to create category', 'error' => $e->getMessage()], 500);
         }
     }
@@ -66,7 +75,6 @@ class AdminCategoryController extends Controller
             return response()->json(['category' => $category->fresh(['manualOrderFields'])]);
         } catch (\Throwable $e) {
             report($e);
-
             return response()->json(['message' => 'Failed to update category', 'error' => $e->getMessage()], 500);
         }
     }
@@ -82,7 +90,6 @@ class AdminCategoryController extends Controller
             return response()->json(['message' => 'Category deleted.']);
         } catch (\Throwable $e) {
             report($e);
-
             return response()->json(['message' => 'Failed to delete category', 'error' => $e->getMessage()], 500);
         }
     }
@@ -105,7 +112,6 @@ class AdminCategoryController extends Controller
             return response()->json(['field' => $field], 201);
         } catch (\Throwable $e) {
             report($e);
-
             return response()->json(['message' => 'Failed to create field', 'error' => $e->getMessage()], 500);
         }
     }
@@ -114,11 +120,9 @@ class AdminCategoryController extends Controller
     {
         try {
             $field->delete();
-
             return response()->json(['message' => 'Field deleted.']);
         } catch (\Throwable $e) {
             report($e);
-
             return response()->json(['message' => 'Failed to delete field', 'error' => $e->getMessage()], 500);
         }
     }

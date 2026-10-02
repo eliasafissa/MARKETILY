@@ -11,12 +11,12 @@ class ProductController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Product::with(['category', 'externalStore'])
+        $query = Product::with(['category:id,slug,name,name_ar,image_url'])
             ->where('is_active', true);
 
         if ($request->filled('category')) {
             $slug = $request->string('category');
-            $query->whereHas('category', fn($q) => $q->where('slug', $slug));
+            $query->whereHas('category', fn ($q) => $q->where('slug', $slug));
         }
 
         if ($request->filled('q')) {
@@ -39,7 +39,7 @@ class ProductController extends Controller
 
     public function show(string $slug): JsonResponse
     {
-        $product = Product::with(['category', 'externalStore'])
+        $product = Product::with(['category:id,slug,name,name_ar,image_url', 'externalStore'])
             ->where('slug', $slug)
             ->where('is_active', true)
             ->firstOrFail();

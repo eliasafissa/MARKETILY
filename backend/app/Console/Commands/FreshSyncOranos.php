@@ -24,15 +24,25 @@ class FreshSyncOranos extends Command
         }
 
         $this->info('Cleaning up database...');
-        DB::transaction(function () {
+
+        // Disable foreign key checks temporarily — MySQL hits a 30-table
+        // cascade limit when deleting self-referential trees (categories.parent_id).
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
+
+        try {
             DB::table('favorites')->delete();
             DB::table('store_product')->delete();
+            DB::table('manual_order_fields')->delete();
             OrderItem::query()->delete();
             Order::query()->delete();
             Store::query()->delete();
             Product::query()->delete();
+            // Delete categories in reverse-depth order to be safe
             Category::query()->delete();
-        });
+        } finally {
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+        }
+
         $this->info('Database cleaned.');
         $this->newLine();
 

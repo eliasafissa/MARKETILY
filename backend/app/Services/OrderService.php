@@ -42,8 +42,7 @@ class OrderService
                     throw new \DomainException("Manual product {$product->name} requires payload data.");
                 }
 
-                // ── Pre-flight check for automation products ──
-                // Never send an order to Oranos unless every required param is filled.
+                // Pre-flight check for automation products
                 if ($product->is_automation) {
                     $requiredParams = is_array($product->params) ? $product->params : [];
                     $suppliedParams = is_array($item['payload'] ?? null) ? $item['payload'] : [];
@@ -60,7 +59,6 @@ class OrderService
 
                 $qty = max(1, (int) $item['quantity']);
 
-                // Use the store's custom price when buying through a store.
                 $unitPrice = (float) $product->price;
                 if ($storeId) {
                     $pivot = DB::table('store_product')
@@ -84,17 +82,14 @@ class OrderService
             $fee = 0.0;
             $total = $subtotal + $fee;
 
-            // Determine if this is fully manual
             $isManualOrder = collect($productMap)->every(fn ($i) => $i['product']->isManual());
 
-            // For automatic orders paid with cash_wallet, debit immediately
-            // Lock user row to prevent race conditions on balance check
             if (! $isManualOrder && $paymentMethod === 'cash_wallet') {
                 $lockedUser = User::lockForUpdate()->findOrFail($user->id);
                 if ((float) $lockedUser->balance < $total) {
                     throw new \DomainException('Insufficient balance.');
                 }
-                $user = $lockedUser; // Use locked user for subsequent operations
+                $user = $lockedUser;
             }
 
             $hasAutomation = collect($productMap)->contains(fn ($i) => $i['product']->is_automation);
@@ -103,14 +98,12 @@ class OrderService
                 ? OrderStatus::Pending
                 : ($hasAutomation ? OrderStatus::Processing : OrderStatus::Completed);
 
-            // Generate payment_ref — wallet gets wallet-xxx; Binance/USDT get a simulated TX id
             $paymentRef = match ($paymentMethod) {
                 'cash_wallet' => 'wallet-'.uniqid(),
                 'binance_pay', 'usdt', 'partner_api' => $this->simulatePaymentRef($paymentMethod, $meta, $total),
                 default => null,
             };
 
-            // Real payment mode returns null — order must wait for webhook confirmation.
             if (! $isManualOrder && in_array($paymentMethod, ['binance_pay', 'usdt']) && empty($paymentRef)) {
                 $status = OrderStatus::Pending;
             }
@@ -155,9 +148,6 @@ class OrderService
                         'meta' => ['order_id' => $order->id],
                     ]);
                 } elseif (in_array($paymentMethod, ['binance_pay', 'usdt', 'partner_api'])) {
-                    // In real mode payment_ref is null — wait for webhook to create the transaction.
-                    // In demo mode we create a simulated TX for admin visibility.
-                    // For partner_api, balance is already deducted by caller; just record the transaction.
                     if ($order->payment_ref) {
                         Transaction::create([
                             'user_id' => $user->id,
@@ -224,6 +214,10 @@ class OrderService
         return $order;
     }
 
+    /**
+     * Send automation items to Oranos, then check their status.
+     * Oranos status values: "accept", "reject", "wait"
+     */
     private function fulfillAutomationItems(Order $order): void
     {
         $oranosService = app(OranosMarketService::class);
@@ -240,7 +234,6 @@ class OrderService
             $payload = is_array($item->payload) ? $item->payload : [];
             $playerId = (string) ($payload['id'] ?? $payload['player_id'] ?? $payload['user_id'] ?? (array_is_list($payload) ? ($payload[0] ?? '') : ''));
             if ($playerId === '') {
-                // Required playerId not provided; will need manual fulfillment
                 $hasFailure = true;
                 $failureReason = 'Missing required playerId for product: ' . $product->name;
                 Log::warning('Oranos fulfillment skipped: missing playerId', [
@@ -276,7 +269,7 @@ class OrderService
                     $oranosOrderIds[] = $oranosOrderId;
                     $order->update([
                         'oranos_order_id' => (string) $oranosOrderId,
-                        'oranos_status' => 'pending',
+                        'oranos_status' => $response['data']['status'] ?? 'wait',
                     ]);
                     Log::info('Oranos order created', [
                         'local_order_id' => $order->id,
@@ -302,36 +295,48 @@ class OrderService
             }
         }
 
-        // If any failure occurred during order creation, refund and reject
         if ($hasFailure) {
             $this->refundFailedOrder($order, $failureReason);
             return;
         }
 
         if (! empty($oranosOrderIds)) {
-            // Check order statuses from Oranos
+            // Check order statuses from Oranos — valid values: accept / reject / wait
             try {
                 $checkResponse = $oranosService->checkOrders($oranosOrderIds);
                 $allCompleted = true;
+                $anyRejected = false;
 
                 if (isset($checkResponse['data']) && is_array($checkResponse['data'])) {
                     foreach ($checkResponse['data'] as $oranosOrder) {
-                        $status = $oranosOrder['status'] ?? $oranosOrder['state'] ?? null;
-                        if ($status !== 'completed' && $status !== 'delivered' && $status !== 'success') {
+                        $status = strtolower((string) ($oranosOrder['status'] ?? ''));
+                        if ($status === 'reject') {
+                            $anyRejected = true;
                             $allCompleted = false;
                             break;
+                        }
+                        if ($status !== 'accept') {
+                            $allCompleted = false;
                         }
                     }
                 } else {
                     $allCompleted = false;
                 }
 
+                if ($anyRejected) {
+                    $this->refundFailedOrder($order, 'Oranos rejected the order');
+                    return;
+                }
+
                 if ($allCompleted) {
-                    $order->update(['status' => OrderStatus::Completed]);
+                    $order->update(['status' => OrderStatus::Completed, 'oranos_status' => 'accept']);
                     $this->safeBroadcast(new OrderCompleted($order));
                     $order->user->notify(new OrderStatusChanged($order));
                     return;
                 }
+
+                // Still "wait" — keep as Processing (admin/cron will follow up)
+                $order->update(['oranos_status' => 'wait']);
             } catch (\Throwable $e) {
                 Log::warning('Oranos checkOrders failed', [
                     'local_order_id' => $order->id,
@@ -340,7 +345,6 @@ class OrderService
             }
         }
 
-        // If we reach here, auto-fulfillment didn't complete — mark as Processing for manual admin fulfillment.
         if ($order->status === OrderStatus::Completed) {
             $order->update(['status' => OrderStatus::Processing]);
         }
@@ -354,11 +358,9 @@ class OrderService
                 'failure_reason' => $reason,
             ]);
 
-            // Refund the user's balance for the total amount
             $user = $order->user;
             $user->increment('balance', (float) $order->total);
 
-            // Create a refund transaction
             Transaction::create([
                 'user_id' => $user->id,
                 'type' => TransactionType::Refund,
@@ -392,7 +394,6 @@ class OrderService
             if (! $product) {
                 continue;
             }
-            // Store owner earns: (their price - our platform price) * qty
             $profit += ((float) $item->unit_price - (float) $product->price) * (int) $item->quantity;
         }
 
@@ -439,16 +440,8 @@ class OrderService
         }
     }
 
-    /**
-     * Call the gateway's simulatePayment and return the fake transaction id.
-     * Returns null when the gateway is in real mode (simulation disabled).
-     *
-     * @param  array<string, mixed>  $meta
-     * @return string|null null when real payment mode is active
-     */
     private function simulatePaymentRef(string $paymentMethod, array $meta, float $total): ?string
     {
-        // partner_api is not a real payment gateway - generate a simple ref
         if ($paymentMethod === 'partner_api') {
             return 'partner_api_'.uniqid();
         }
@@ -456,8 +449,6 @@ class OrderService
         $gateway = app(PaymentGatewayManager::class)->driver($paymentMethod);
 
         if (! $gateway->isDemoMode()) {
-            // Real payment mode: order must wait for webhook confirmation.
-            // Return null so createOrder sets status = Pending and ref = null.
             return null;
         }
 

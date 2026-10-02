@@ -31,14 +31,34 @@ class OranosMarketService
         return Http::withHeaders($headers)->timeout(120)->connectTimeout(30);
     }
 
+    /**
+     * Get root categories + featured products.
+     * Oranos API: GET /client/api/content/0
+     * Returns { products: [], categories: [] }
+     */
+    public function getContent(int $categoryId = 0): array
+    {
+        $response = $this->http()->get("{$this->base}/client/api/content/{$categoryId}");
+        $this->logRawResponse('getContent', $response);
+
+        return $response->json() ?? [];
+    }
+
+    /**
+     * Get root categories only.
+     */
     public function getCategories(): array
     {
-        $response = $this->http()->get("{$this->base}/client/api/categories");
-        $this->logRawResponse('getCategories', $response);
+        $data = $this->getContent(0);
+        return $data['categories'] ?? [];
+    }
 
-        $data = $response->json() ?? [];
-
-        return $this->validateListResponse($data, 'getCategories');
+    /**
+     * Get products + subcategories for a specific category.
+     */
+    public function getCategoryProducts(int $oranosCategoryId): array
+    {
+        return $this->getContent($oranosCategoryId);
     }
 
     public function getProducts(): array
@@ -67,10 +87,6 @@ class OranosMarketService
 
     /**
      * Validate that the response is a non-empty list of items with 'id' key.
-     *
-     * @param  array|mixed  $data
-     * @return array
-     * @throws RuntimeException if response is not a valid list
      */
     protected function validateListResponse(mixed $data, string $method): array
     {
@@ -97,11 +113,6 @@ class OranosMarketService
         return $data;
     }
 
-    public function getCategoryProducts(int $oranosCategoryId, string $lang = 'ar'): array
-    {
-        return $this->http()->get("{$this->base}/api/category/products/{$oranosCategoryId}?lang={$lang}")->json() ?? [];
-    }
-
     public function getConfigs(string $lang = 'ar', string $currency = 'USD'): array
     {
         return $this->http()->get("{$this->base}/api/configs?lang={$lang}&currency={$currency}")->json() ?? [];
@@ -117,7 +128,7 @@ class OranosMarketService
         $query = http_build_query(array_merge([
             'qty' => $quantity,
             'playerId' => $playerId,
-            'order_uuid' => Str::random(32),
+            'order_uuid' => (string) Str::uuid(),
         ], $extraParams));
 
         try {

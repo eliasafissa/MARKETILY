@@ -7,19 +7,15 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-// ─────────────────────────────────────────────────────────
 // TEMPORARY: Maintenance endpoint for Oranos sync
-// Protected by a secret key in the URL.
-// ⚠️ REMOVE AFTER FIRST SYNC IS DONE.
-// ─────────────────────────────────────────────────────────
 Route::get('/__maintenance/sync-oranos/{secret}', function (string $secret) {
     $expectedSecret = env('SYNC_SECRET', 'change-me-' . date('Ymd'));
     if ($secret !== $expectedSecret) {
         abort(404);
     }
 
-    @set_time_limit(600);
-    @ini_set('memory_limit', '512M');
+    @set_time_limit(1800);
+    @ini_set('memory_limit', '1024M');
 
     $output = [];
     $output[] = '=== Starting Fresh Sync ===';
@@ -29,8 +25,7 @@ Route::get('/__maintenance/sync-oranos/{secret}', function (string $secret) {
         Artisan::call('oranos:fresh-sync', ['--force' => true]);
         $output[] = Artisan::output();
     } catch (\Throwable $e) {
-        $output[] = '❌ ERROR: ' . $e->getMessage();
-        $output[] = $e->getTraceAsString();
+        $output[] = 'ERROR: ' . $e->getMessage();
     }
 
     return response('<pre>' . e(implode("\n", $output)) . '</pre>');

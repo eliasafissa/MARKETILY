@@ -11,98 +11,140 @@ use Illuminate\Support\Str;
 class SyncOranosCategories extends Command
 {
     protected $signature = 'oranos:sync-categories';
+    protected $description = 'Recursively sync the full Oranos category tree (all levels)';
 
-    protected $description = 'Sync categories from Oranos Market API (root + subcategories)';
+    protected OranosMarketService $service;
+    protected array $processed = [];
 
     public function handle(OranosMarketService $service): int
     {
-        // 1. Fetch root categories from /client/api/content/0
-        try {
-            $rootData = $service->getContent(0);
-        } catch (\Throwable $e) {
-            Log::error('Failed to fetch Oranos root categories', ['error' => $e->getMessage()]);
-            $this->error('Failed to fetch categories: '.$e->getMessage());
-            return 1;
-        }
+        $this->service = $service;
 
-        $rootCategories = $rootData['categories'] ?? [];
+        $this->info('Fetching root tree from Oranos...');
+        $root = $service->getContent(0);
+
+        $rootCategories = $root['categories'] ?? [];
         $this->info('Root categories: ' . count($rootCategories));
 
-        $synced = 0;
-        $skipped = 0;
-        $withChildren = 0;
+        $rootCount = 0;
+        $subCount = 0;
 
-        // 2. Sync each root category
         foreach ($rootCategories as $catData) {
-            $this->syncCategory($catData, null);
-            $synced++;
-
-            // 3. Fetch subcategories for this root
             $oranosId = $catData['id'] ?? null;
-            if (! $oranosId) {
+            $name = trim((string) ($catData['name'] ?? ''));
+
+            if (! $oranosId || $name === '' || strtolower($name) === 'null') {
                 continue;
             }
 
-            try {
-                $subData = $service->getContent((int) $oranosId);
-            } catch (\Throwable $e) {
-                $this->warn("Failed to fetch subcategories for #{$oranosId}: " . $e->getMessage());
-                continue;
-            }
+            // 1. Create/update root category
+            $category = $this->upsertCategory($catData, null);
+            if (! $category) continue;
 
-            $subCategories = $subData['categories'] ?? [];
-            $parentLocal = Category::where('oranos_category_id', $oranosId)->first();
+            $rootCount++;
+            $this->line("  Root #{$oranosId} ({$name})");
 
-            foreach ($subCategories as $subCat) {
-                $this->syncCategory($subCat, $parentLocal?->id);
-                $withChildren++;
-            }
-
-            if (count($subCategories) > 0) {
-                $this->line("  #{$oranosId} ({$catData['name']}): " . count($subCategories) . " subcategories");
-            }
+            // 2. Recursively fetch subcategories + products
+            $subCount += $this->syncChildren((int) $oranosId, $category->id);
         }
 
-        $this->info("Done. Synced {$synced} root + {$withChildren} subcategories. Skipped: {$skipped}.");
+        $this->newLine();
+        $this->info('=== SYNC COMPLETE ===');
+        $this->info("Root categories:       {$rootCount}");
+        $this->info("Subcategories (total): {$subCount}");
+        $this->info('Total categories:      ' . Category::count());
 
         return 0;
     }
 
     /**
-     * Sync a single category (create or update).
+     * Recursively fetch content/{id} and create subcategories.
      */
-    private function syncCategory(array $catData, ?int $parentId): ?Category
+    protected function syncChildren(int $oranosId, int $parentLocalId): int
     {
-        $oranosId = $catData['id'] ?? null;
-        $name = trim((string) ($catData['name'] ?? ''));
+        // Prevent infinite loops
+        if (in_array($oranosId, $this->processed, true)) {
+            return 0;
+        }
+        $this->processed[] = $oranosId;
 
-        // Skip invalid categories (e.g. "null" name or empty id)
+        try {
+            $data = $this->service->getContent($oranosId);
+        } catch (\Throwable $e) {
+            Log::warning("Failed to fetch children for Oranos #{$oranosId}", [
+                'error' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+
+        $children = $data['categories'] ?? [];
+        $count = 0;
+
+        foreach ($children as $childData) {
+            $childOranosId = $childData['id'] ?? null;
+            $childName = trim((string) ($childData['name'] ?? ''));
+
+            if (! $childOranosId || $childName === '' || strtolower($childName) === 'null') {
+                continue;
+            }
+
+            // Create/update the child with the correct parent_id
+            $child = $this->upsertCategory($childData, $parentLocalId);
+            if (! $child) continue;
+
+            $count++;
+            $this->line("    └── #{$childOranosId} ({$childName})");
+
+            // Recurse — this child might have its own children
+            $count += $this->syncChildren((int) $childOranosId, $child->id);
+        }
+
+        return $count;
+    }
+
+    /**
+     * Create or update a category with the given parent local id.
+     */
+    protected function upsertCategory(array $data, ?int $parentLocalId): ?Category
+    {
+        $oranosId = $data['id'] ?? null;
+        $name = trim((string) ($data['name'] ?? ''));
+
         if (! $oranosId || $name === '' || strtolower($name) === 'null') {
             return null;
         }
 
         try {
-            // Find by oranos_category_id first, then by name
+            // Try by oranos_category_id first (most reliable)
             $category = Category::where('oranos_category_id', $oranosId)->first();
 
             if (! $category) {
-                $category = Category::where('name_ar', $name)->orWhere('name', $name)->first();
+                // Try by exact name + parent_id combination
+                $category = Category::where('name', $name)
+                    ->where(function ($q) use ($parentLocalId) {
+                        if ($parentLocalId === null) {
+                            $q->whereNull('parent_id');
+                        } else {
+                            $q->where('parent_id', $parentLocalId);
+                        }
+                    })
+                    ->first();
             }
 
             if ($category) {
                 // Update existing
-                $update = [];
+                $updates = [];
                 if (! $category->oranos_category_id) {
-                    $update['oranos_category_id'] = $oranosId;
+                    $updates['oranos_category_id'] = $oranosId;
                 }
-                if ($parentId !== null && $category->parent_id !== $parentId) {
-                    $update['parent_id'] = $parentId;
+                if ($category->parent_id !== $parentLocalId) {
+                    $updates['parent_id'] = $parentLocalId;
                 }
                 if ($category->name_ar !== $name) {
-                    $update['name_ar'] = $name;
+                    $updates['name_ar'] = $name;
                 }
-                if (! empty($update)) {
-                    $category->update($update);
+                if (! empty($updates)) {
+                    $category->update($updates);
                 }
                 return $category;
             }
@@ -115,13 +157,12 @@ class SyncOranosCategories extends Command
             $base = $slug;
             $i = 2;
             while (Category::where('slug', $slug)->exists()) {
-                $slug = $base . '-' . $i;
-                $i++;
+                $slug = $base . '-' . $i++;
             }
 
             return Category::create([
                 'oranos_category_id' => $oranosId,
-                'parent_id'          => $parentId,
+                'parent_id'          => $parentLocalId,
                 'name'               => $name,
                 'name_ar'            => $name,
                 'slug'               => $slug,
@@ -130,9 +171,10 @@ class SyncOranosCategories extends Command
                 'sort_order'         => 0,
             ]);
         } catch (\Throwable $e) {
-            Log::warning('Failed to sync category', [
+            Log::warning('Failed to upsert category', [
                 'oranos_id' => $oranosId,
                 'name' => $name,
+                'parent_local' => $parentLocalId,
                 'error' => $e->getMessage(),
             ]);
             return null;

@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 class SyncOranosProducts extends Command
 {
     protected $signature = 'oranos:sync-products';
-    protected $description = 'Sync products + auto-create missing categories from Oranos';
+    protected $description = 'Sync products from Oranos and link them to their categories';
 
     protected OranosMarketService $service;
     protected array $categoriesByOranosId = [];
@@ -44,8 +44,7 @@ class SyncOranosProducts extends Command
         $updated = 0;
         $failed = 0;
         $inactive = 0;
-        $autoCreatedCategories = 0;
-        $orphan = 0;
+        $noCategory = 0;
 
         foreach ($products as $product) {
             try {
@@ -66,7 +65,6 @@ class SyncOranosProducts extends Command
 
                 $params = is_array($product['params'] ?? null) ? $product['params'] : [];
                 $qtyValues = $product['qty_values'] ?? null;
-                $productType = $product['product_type'] ?? 'package';
 
                 $oranosParentId = $product['parent_id'] ?? null;
                 $categoryName = trim((string) ($product['category_name'] ?? ''));
@@ -76,20 +74,18 @@ class SyncOranosProducts extends Command
                     $categoryImg = null;
                 }
 
-                // Resolve category — try in this order:
-                // 1. by oranos_category_id (local category id)
-                // 2. by name match
-                // 3. AUTO-CREATE the missing category
-                $category = $this->resolveCategory($oranosParentId, $categoryName);
-
-                if (! $category) {
-                    // Can't resolve at all — skip
-                    $orphan++;
-                    continue;
+                // Resolve category — must already exist (created by sync-categories)
+                $category = null;
+                if ($oranosParentId && isset($this->categoriesByOranosId[$oranosParentId])) {
+                    $category = $this->categoriesByOranosId[$oranosParentId];
+                } elseif ($categoryName !== '' && isset($this->categoriesByName[$categoryName])) {
+                    $category = $this->categoriesByName[$categoryName];
                 }
 
-                if ($category->wasRecentlyCreated) {
-                    $autoCreatedCategories++;
+                if (! $category) {
+                    // No category found — skip (categories must be synced first)
+                    $noCategory++;
+                    continue;
                 }
 
                 $existing = Product::where('oranos_product_id', $oranosId)->first();
@@ -136,7 +132,6 @@ class SyncOranosProducts extends Command
                 }
 
                 if (! $isActive) $inactive++;
-
             } catch (\Throwable $e) {
                 $failed++;
                 Log::warning('Failed to sync Oranos product', [
@@ -148,76 +143,15 @@ class SyncOranosProducts extends Command
 
         $this->newLine();
         $this->info('=== SYNC COMPLETE ===');
-        $this->info("New products:          {$synced}");
-        $this->info("Updated products:      {$updated}");
-        $this->info("Auto-created categories: {$autoCreatedCategories}");
-        $this->info("Inactive:              {$inactive}");
-        $this->info("Orphan (skipped):      {$orphan}");
-        $this->info("Failed:                {$failed}");
+        $this->info("New products:      {$synced}");
+        $this->info("Updated products:  {$updated}");
+        $this->info("Inactive:          {$inactive}");
+        $this->info("No category:       {$noCategory}");
+        $this->info("Failed:            {$failed}");
 
         return 0;
     }
 
-    /**
-     * Resolve or auto-create a category from an Oranos product.
-     */
-    protected function resolveCategory(?int $oranosParentId, string $name): ?Category
-    {
-        // 1. Match by oranos_category_id
-        if ($oranosParentId && isset($this->categoriesByOranosId[$oranosParentId])) {
-            return $this->categoriesByOranosId[$oranosParentId];
-        }
-
-        // 2. Match by name (exact)
-        if ($name !== '' && isset($this->categoriesByName[$name])) {
-            $cat = $this->categoriesByName[$name];
-            if ($oranosParentId && ! $cat->oranos_category_id) {
-                $cat->update(['oranos_category_id' => $oranosParentId]);
-                $this->categoriesByOranosId[$oranosParentId] = $cat;
-            }
-            return $cat;
-        }
-
-        // 3. Auto-create the missing category
-        if ($name === '') return null;
-
-        $slug = Str::slug($name);
-        if (empty($slug)) $slug = 'cat-' . ($oranosParentId ?? substr(md5($name), 0, 8));
-        $base = $slug; $i = 2;
-        while (Category::where('slug', $slug)->exists()) {
-            $slug = $base . '-' . $i++;
-        }
-
-        try {
-            $category = Category::create([
-                'oranos_category_id' => $oranosParentId,
-                'name'               => $name,
-                'name_ar'            => $name,
-                'slug'               => $slug,
-                'type'               => 'auto',
-                'icon'               => 'package',
-                'sort_order'         => 0,
-            ]);
-
-            if ($oranosParentId) {
-                $this->categoriesByOranosId[$oranosParentId] = $category;
-            }
-            $this->categoriesByName[$name] = $category;
-
-            return $category;
-        } catch (\Throwable $e) {
-            Log::warning('Failed to auto-create category', [
-                'name' => $name,
-                'oranos_id' => $oranosParentId,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Preload all categories into memory for fast lookups.
-     */
     protected function preloadCategories(): void
     {
         Category::query()->chunk(500, function ($chunk) {

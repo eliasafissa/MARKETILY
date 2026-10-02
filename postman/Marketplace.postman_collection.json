@@ -1,0 +1,62 @@
+{
+  "info": {
+    "name": "Digital Marketplace API",
+    "description": "Full API collection for the Digital Marketplace & Services Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000/api" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        { "name": "Login", "event": [{ "listen": "test", "script": { "exec": ["const json = pm.response.json(); pm.collectionVariables.set('token', json.user?.id);"] } }], "request": { "method": "POST", "url": "{{baseUrl}}/auth/login", "header": [], "body": { "mode": "json", "raw": "{\"email\":\"admin@demo.test\",\"password\":\"password\"}" } } },
+        { "name": "Register", "request": { "method": "POST", "url": "{{baseUrl}}/auth/register", "header": [], "body": { "mode": "json", "raw": "{\"name\":\"Test User\",\"email\":\"test2@example.com\",\"password\":\"password123\",\"password_confirmation\":\"password123\"}" } } },
+        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/auth/me", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] } } },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout" } }
+      ]
+    },
+    {
+      "name": "Categories & Products",
+      "item": [
+        { "name": "List Categories", "request": { "method": "GET", "url": "{{baseUrl}}/categories" } },
+        { "name": "Category Details", "request": { "method": "GET", "url": "{{baseUrl}}/categories/games" } },
+        { "name": "List Products", "request": { "method": "GET", "url": "{{baseUrl}}/products" } },
+        { "name": "Product Details", "request": { "method": "GET", "url": "{{baseUrl}}/products/steam-gift-card-50" } }
+      ]
+    },
+    {
+      "name": "Orders (Authenticated)",
+      "item": [
+        { "name": "Create Order", "request": { "method": "POST", "url": "{{baseUrl}}/orders", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "body": { "mode": "json", "raw": "{\"items\":[{\"product_id\":1,\"quantity\":1}],\"payment_method\":\"cash_wallet\"}" } } },
+        { "name": "List My Orders", "request": { "method": "GET", "url": "{{baseUrl}}/orders" } }
+      ]
+    },
+    {
+      "name": "Deposits & Withdrawals",
+      "item": [
+        { "name": "Create Deposit", "request": { "method": "POST", "url": "{{baseUrl}}/deposits", "body": { "mode": "json", "raw": "{\"amount\":100,\"method\":\"cash_wallet\"}" } } },
+        { "name": "List Deposits", "request": { "method": "GET", "url": "{{baseUrl}}/deposits" } },
+        { "name": "VIP Status", "request": { "method": "GET", "url": "{{baseUrl}}/vip/status" } }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        { "name": "Dashboard Stats", "request": { "method": "GET", "url": "{{baseUrl}}/admin/dashboard" } },
+        { "name": "List Users", "request": { "method": "GET", "url": "{{baseUrl}}/admin/users" } },
+        { "name": "Update User VIP", "request": { "method": "PATCH", "url": "{{baseUrl}}/admin/users/5", "body": { "mode": "json", "raw": "{\"vip_level\":\"vip2\"}" } } },
+        { "name": "Pending Manual Orders", "request": { "method": "GET", "url": "{{baseUrl}}/admin/orders/pending-manual" } },
+        { "name": "Approve Manual Order", "request": { "method": "PATCH", "url": "{{baseUrl}}/admin/orders/3/status", "body": { "mode": "json", "raw": "{\"status\":\"completed\"}" } } },
+        { "name": "Approve Deposit", "request": { "method": "POST", "url": "{{baseUrl}}/admin/deposits/1/approve" } },
+        { "name": "Reject Withdrawal", "request": { "method": "POST", "url": "{{baseUrl}}/admin/withdrawals/2/reject", "body": { "mode": "json", "raw": "{\"reason\":\"Invalid wallet address\"}" } } },
+        { "name": "Update Settings", "request": { "method": "POST", "url": "{{baseUrl}}/admin/settings", "body": { "mode": "json", "raw": "{\"key\":\"vip1_fee_percent\",\"value\":\"2.5\",\"type\":\"float\"}" } } }
+      ]
+    }
+  ]
+}

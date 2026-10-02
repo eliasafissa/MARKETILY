@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Disallow admin area
+Disallow: /admin/
+
+# Sitemap
+Sitemap: https://marketly-production.up.railway.app/sitemap.xml

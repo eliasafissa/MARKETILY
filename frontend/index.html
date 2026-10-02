@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0A0A0A" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Primary SEO -->
+    <title>Marketly — سوق رقمي للمنتجات والخدمات</title>
+    <meta name="title" content="Marketly — سوق رقمي للمنتجات والخدمات" />
+    <meta name="description" content="Marketly هو سوق رقمي مميز لمفاتيح الألعاب، بطاقات الهدايا، تراخيص البرامج، اشتراكات VPN والبث، أدوات الذكاء الاصطناعي، والخدمات المخصصة. مستويات VIP، تنفيذ يدوي، ومدفوعات العملات المشفرة." />
+    <meta name="keywords" content="سوق رقمي, مفاتيح ألعاب, بطاقات هدايا, تراخيص برامج, VPN, بث, أدوات ذكاء اصطناعي, مدفوعات عملات مشفرة, USDT, Binance Pay, Marketly" />
+    <meta name="author" content="Marketly" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://marketly-production.up.railway.app/" />
+    <meta property="og:title" content="Marketly — سوق رقمي للمنتجات والخدمات" />
+    <meta property="og:description" content="سوق رقمي مميز لمفاتيح الألعاب، بطاقات الهدايا، تراخيص البرامج، اشتراكات البث، أدوات الذكاء الاصطناعي، والخدمات المخصصة. مستويات VIP ومدفوعات العملات المشفرة." />
+    <meta property="og:image" content="https://marketly-production.up.railway.app/og-image.svg" />
+    <meta property="og:site_name" content="Marketly" />
+    <meta property="og:locale" content="ar_SA" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://marketly-production.up.railway.app/" />
+    <meta name="twitter:title" content="Marketly — سوق رقمي للمنتجات والخدمات" />
+    <meta name="twitter:description" content="سوق رقمي مميز لمفاتيح الألعاب، بطاقات الهدايا، تراخيص البرامج، اشتراكات البث، أدوات الذكاء الاصطناعي، والخدمات المخصصة." />
+    <meta name="twitter:image" content="https://marketly-production.up.railway.app/og-image.svg" />
+
+    <!-- Preconnect to API for faster TTFB -->
+    <link rel="preconnect" href="https://marketly-production.up.railway.app" />
+
+    <!-- ── Analytics placeholder ─────────────────────────────────── -->
+    <!-- To enable analytics, set VITE_GA_MEASUREMENT_ID or VITE_UMAMI_WEBSITE_ID
+         in the frontend .env file. The script tag will be injected automatically. -->
+
+    <!--
+    ╔═══════════════════════════════════════════════════════════╗
+    ║  GOOGLE ANALYTICS – ADD YOUR MEASUREMENT ID BELOW       ║
+    ╠═══════════════════════════════════════════════════════════╣
+    ║  1. Get your GA4 Measurement ID (G-XXXXXXXXXX)        ║
+    ║  2. Add to frontend/.env:                               ║
+    ║       VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX               ║
+    ║  3. The analytics component will inject the script.      ║
+    ╚═══════════════════════════════════════════════════════════╝
+    -->
+
+    <!-- ── Theme bootstrap to prevent dark/light flash ─────────── -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          if (stored === 'light') {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.dataset.theme = 'light';
+          } else {
+            document.documentElement.classList.add('dark');
+            document.documentElement.dataset.theme = 'dark';
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

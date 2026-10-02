@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+vendor/
+
+# Environment
+.env
+.env.backup
+.env.production
+
+# Laravel
+storage/*.log
+storage/framework/
+storage/framework/cache/data/
+storage/framework/sessions/
+storage/framework/views/
+storage/logs/
+bootstrap/cache/
+
+# Frontend build
+frontend/dist/
+frontend/.vite/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# SQLite
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Composer
+composer.phar
+
+# Misc
+*.cache
+*.tsbuildinfo
+vite.config.d.ts
+.aider*
+*.bak
+*.orig
+
+# Trash folder
+_trash/
+
+# Railway
+.railway/
+railway.toml
+
+
+# Vite variants
+vite.config.js.bak
+frontend/vite.config.d.ts

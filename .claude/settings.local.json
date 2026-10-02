@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan *)",
+      "Bash(/bin/bash -c 'node /Users/mac/Desktop/eliasproject/frontend/node_modules/vite/bin/vite.js build 2>&1' | /usr/bin/head -60)",
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(cd *)",
+      "Skill(use-railway)"
+    ]
+  }
+}

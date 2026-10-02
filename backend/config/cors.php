@@ -10,13 +10,9 @@ return [
 
     'paths' => ['api/*', 'sanctum/csrf-cookie', 'broadcasting/*'],
 
-    'allowed_methods' => ['*'],
-
     'allowed_origins' => [
-        'https://marketly-production.up.railway.app',
-        'https://marketly-frontend-production.up.railway.app',
-        'https://eliasproject-production.up.railway.app',
-        'https://marketly-backend-production.up.railway.app',
+        'https://enchanting-adaptation-production-2ff6.up.railway.app',
+        'https://marketily-production.up.railway.app',
         'http://localhost:3000',
         'http://localhost:5173',
     ],

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/marketlly-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0A0A0A" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Primary SEO -->
+    <title>Marketlly — سوق رقمي للمنتجات والخدمات</title>
+    <meta name="title" content="Marketlly — سوق رقمي للمنتجات والخدمات" />
+    <meta name="description" content="Marketlly هو سوق رقمي مميز لمفاتيح الألعاب، بطاقات الهدايا، تراخيص البرامج، اشتراكات VPN والبث، أدوات الذكاء الاصطناعي، والخدمات المخصصة. مستويات VIP، تنفيذ يدوي، ومدفوعات العملات المشفرة." />
+    <meta name="keywords" content="سوق رقمي, مفاتيح ألعاب, بطاقات هدايا, تراخيص برامج, VPN, بث, أدوات ذكاء اصطناعي, مدفوعات عملات مشفرة, USDT, Binance Pay, Marketlly" />
+    <meta name="author" content="Marketlly" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://marketlly.store/" />
+    <meta property="og:title" content="Marketlly — سوق رقمي للمنتجات والخدمات" />
+    <meta property="og:description" content="سوق رقمي مميز لمفاتيح الألعاب، بطاقات الهدايا، تراخيص البرامج، اشتراكات البث، أدوات الذكاء الاصطناعي، والخدمات المخصصة. مستويات VIP ومدفوعات العملات المشفرة." />
+    <meta property="og:image" content="https://marketlly.store/og-image.png" />
+    <meta property="og:site_name" content="Marketlly" />
+    <meta property="og:locale" content="ar_SA" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://marketlly.store/" />
+    <meta name="twitter:title" content="Marketlly — سوق رقمي للمنتجات والخدمات" />
+    <meta name="twitter:description" content="سوق رقمي مميز لمفاتيح الألعاب، بطاقات الهدايا، تراخيص البرامج، اشتراكات البث، أدوات الذكاء الاصطناعي، والخدمات المخصصة." />
+    <meta name="twitter:image" content="https://marketlly.store/og-image.png" />
+
+    <!-- Preconnect to API for faster TTFB -->
+    <link rel="preconnect" href="https://marketlly.store" />
+
+    <!-- ── Analytics placeholder ─────────────────────────────────── -->
+    <!-- To enable analytics, set VITE_GA_MEASUREMENT_ID or VITE_UMAMI_WEBSITE_ID
+         in the frontend .env file. The script tag will be injected automatically. -->
+
+    <!--
+    ╔═══════════════════════════════════════════════════════════╗
+    ║  GOOGLE ANALYTICS – ADD YOUR MEASUREMENT ID BELOW       ║
+    ╠═══════════════════════════════════════════════════════════╣
+    ║  1. Get your GA4 Measurement ID (G-XXXXXXXXXX)        ║
+    ║  2. Add to frontend/.env:                               ║
+    ║       VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX               ║
+    ║  3. The analytics component will inject the script.      ║
+    ╚═══════════════════════════════════════════════════════════╝
+    -->
+
+    <!-- ── Theme bootstrap to prevent dark/light flash ─────────── -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          if (stored === 'light') {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.dataset.theme = 'light';
+          } else {
+            document.documentElement.classList.add('dark');
+            document.documentElement.dataset.theme = 'dark';
+          }
+        } catch (e) {}
+      })();
+    </script>
+  
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const tg = window.Telegram?.WebApp;
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        const initData = tg.initData;
+        if (initData && !localStorage.getItem('token')) {
+          fetch('https://api.marketlly.store/api/telegram/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ initData })
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.token) {
+              localStorage.setItem('token', data.token);
+              window.location.reload();
+            }
+          }).catch(console.error);
+        }
+      }
+    });
+  </script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

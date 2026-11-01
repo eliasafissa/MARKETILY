@@ -1,0 +1,24 @@
+HAIDARSTORE PRODUCTION PREFLIGHT
+NO SECRETS PRINTED; NO FILE MODIFICATIONS
+This is a CONFIG review, not a live security test
+
+BLOCKERS / REVIEW ITEMS:
+- APP_ENV is not production.
+- APP_DEBUG must be false.
+- APP_URL is not HTTPS.
+- FRONTEND_URL is not HTTPS.
+- VITE_API_URL is not HTTPS; also set it in the frontend build environment.
+- MAIL_MAILER is not SMTP.
+- Gmail SMTP is not fully configured.
+- Database points to localhost; verify topology if DB is not on same host.
+- Database uses root; use a least-privilege user.
+- LOG_LEVEL is debug.
+- SESSION_SECURE_COOKIE should be true on HTTPS.
+- Mock Binance credentials exist; manual-only integration must not call live gateway.
+- Mock USDT webhook secret exists; never rely on it for authenticating payments.
+- Sample Reverb secret present. Keep broadcasting disabled until configured.
+- Oranos token may have been disclosed; rotate at provider and update private production secret.
+- APP_KEY may have been disclosed; plan controlled rotation (encrypted data compatibility).
+
+Also check: HTTPS, CORS, trusted hosts/proxies, rate limits, backups, queue worker, email verification/reset links, partner key hashing/revocation/idempotency, deposits, storage volume, real SMTP test.
+Do not publish .env or this backup to Git.

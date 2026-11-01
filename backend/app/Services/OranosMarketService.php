@@ -1,0 +1,197 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use RuntimeException;
+
+class OranosMarketService
+{
+    protected string $base;
+    protected ?string $token;
+
+    public function __construct()
+    {
+        $this->base  = rtrim(config('services.oranos.url'), '/');
+        $this->token = config('services.oranos.token');
+    }
+
+    protected function http()
+    {
+        if (! $this->token) {
+            throw new RuntimeException('ORANOS_API_TOKEN is not configured.');
+        }
+        $headers = [
+            'api-token'       => $this->token,
+            'Accept'          => 'application/json, text/plain, */*',
+            'Accept-Language' => 'ar,en;q=0.9',
+        ];
+        // Use an official CA trust bundle for Windows/XAMPP cURL error 60; never disable TLS verification.
+        $ca = config('services.oranos.ca_bundle') ?: storage_path('app/certs/cacert.pem');
+        $http = Http::withHeaders($headers)->timeout(60)->connectTimeout(20);
+        return is_file($ca) ? $http->withOptions(['verify' => $ca]) : $http;
+    }
+
+    /**
+     * Get root categories + featured products.
+     * Oranos API: GET /client/api/content/0
+     * Returns { products: [], categories: [] }
+     */
+    public function getContent(int $categoryId = 0): array
+    {
+        $response = $this->http()->get("{$this->base}/client/api/content/{$categoryId}");
+        $this->logRawResponse('getContent', $response);
+
+        return $this->requiredJson($response, 'getContent');
+    }
+
+    /**
+     * Get root categories only.
+     */
+    public function getCategories(): array
+    {
+        $data = $this->getContent(0);
+        return $data['categories'] ?? [];
+    }
+
+    /**
+     * Get products + subcategories for a specific category.
+     */
+    public function getCategoryProducts(int $oranosCategoryId): array
+    {
+        return $this->getContent($oranosCategoryId);
+    }
+
+    public function getProducts(): array
+    {
+        $response = $this->http()->get("{$this->base}/client/api/products");
+        $this->logRawResponse('getProducts', $response);
+
+        $data = $this->requiredJson($response, 'getProducts');
+
+        return $this->validateListResponse($data, 'getProducts');
+    }
+
+    /**
+     * Log raw HTTP response for debugging.
+     */
+    protected function logRawResponse(string $method, $response): void
+    {
+        $status = $response->status();
+        // Never log provider payloads, keys or customer identifiers.
+        Log::debug("Oranos {$method} response", ['status' => $status]);
+    }
+
+    /**
+     * Validate that the response is a non-empty list of items with 'id' key.
+     */
+    protected function validateListResponse(mixed $data, string $method): array
+    {
+        if (! is_array($data)) {
+            throw new RuntimeException("Oranos {$method} returned non-array response: " . json_encode($data));
+        }
+
+        if (empty($data)) {
+            throw new RuntimeException("Oranos {$method} returned empty response");
+        }
+
+        // Check if it's an associative array (error object) vs a list
+        $keys = array_keys($data);
+        if ($keys !== range(0, count($data) - 1)) {
+            throw new RuntimeException("Oranos {$method} returned associative array (likely error object): " . json_encode($data));
+        }
+
+        // Check first item has 'id' key
+        $first = $data[0] ?? null;
+        if (! is_array($first) || ! array_key_exists('id', $first)) {
+            throw new RuntimeException("Oranos {$method} returned malformed item (missing 'id'): " . json_encode($first));
+        }
+
+        return $data;
+    }
+
+    private function requiredJson($response, string $context): array
+    {
+        if (! $response->successful()) {
+            throw new RuntimeException("Oranos {$context} HTTP " . $response->status());
+        }
+        $data = $response->json();
+        if (! is_array($data) || isset($data['error']) || isset($data['code']) ||
+            (isset($data['status']) && $data['status'] !== 'OK')) {
+            throw new RuntimeException("Oranos {$context} invalid/error response");
+        }
+        return $data;
+    }
+
+    public function getConfigs(string $lang = 'ar', string $currency = 'USD'): array
+    {
+        return $this->http()->get("{$this->base}/api/configs?lang={$lang}&currency={$currency}")->json() ?? [];
+    }
+
+    public function getProfile(): array
+    {
+        return \Illuminate\Support\Facades\Cache::remember('oranos.profile', now()->addSeconds(45), function () {
+            $response = $this->http()->get("{$this->base}/client/api/profile");
+            $data = $this->requiredJson($response, 'getProfile');
+            if (!isset($data['balance']) || !is_numeric($data['balance'])) {
+                throw new RuntimeException('Oranos profile missing a valid balance.');
+            }
+            return $data;
+        });
+    }
+
+    public function createOrder(int $productId, int $quantity, string $playerId, array $extraParams = [], ?string $orderUuid = null): array
+    {
+        $query = http_build_query(array_merge($extraParams, [
+            'qty' => $quantity,
+            'playerId' => $playerId,
+            'order_uuid' => $orderUuid ?: (string) Str::uuid(),
+        ]));
+
+        try {
+            $response = $this->http()->get("{$this->base}/client/api/newOrder/{$productId}/params?{$query}");
+        } catch (\Exception $e) {
+            Log::error('Oranos API createOrder failed', ['error' => $e->getMessage(), 'product_id' => $productId]);
+            throw new RuntimeException('Oranos API request failed: '.$e->getMessage());
+        }
+
+        if (! $response->successful()) {
+            Log::error('Oranos API createOrder error', [
+                'status' => $response->status(),
+                'product_id' => $productId,
+            ]);
+            throw new RuntimeException('Oranos API error: '.$response->status());
+        }
+
+        return $this->requiredJson($response, 'createOrder');
+    }
+
+    public function checkOrders(array $orderIds): array
+    {
+        // API docs specify: orders=[ID1,ID2] (without JSON quoted strings).
+        $ids = array_values(array_filter(array_map('strval', $orderIds),
+            fn ($id) => preg_match('/^[A-Za-z0-9_-]+$/', $id)));
+        if (count($ids) !== count($orderIds) || count($ids) === 0) {
+            throw new RuntimeException('Invalid Oranos order IDs');
+        }
+        $orders = rawurlencode('[' . implode(',', $ids) . ']');
+
+        try {
+            $response = $this->http()->get("{$this->base}/client/api/check?orders={$orders}");
+        } catch (\Exception $e) {
+            Log::error('Oranos API checkOrders failed', ['error' => $e->getMessage(), 'order_ids' => $orderIds]);
+            throw new RuntimeException('Oranos API request failed: '.$e->getMessage());
+        }
+
+        if (! $response->successful()) {
+            Log::error('Oranos API checkOrders error', [
+                'status' => $response->status(),
+            ]);
+            throw new RuntimeException('Oranos API error: '.$response->status());
+        }
+
+        return $this->requiredJson($response, 'checkOrders');
+    }
+}

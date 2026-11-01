@@ -1,0 +1,42 @@
+/* Haidarstore V7: restrained responsive refinement; no Oranos/checkout business logic. */
+.dark { color-scheme: dark; }
+.dark [role="dialog"], .dark .hs-dialog, .dark .modal-content {
+  background-color: #171b20 !important;
+  background-image: none !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  box-shadow: 0 30px 90px rgba(0,0,0,.65) !important;
+  color: #f1f5f9 !important;
+  isolation: isolate;
+}
+.dark [role="dialog"] input, .dark [role="dialog"] select, .dark [role="dialog"] textarea,
+.dark .hs-dialog input, .dark .hs-dialog select, .dark .hs-dialog textarea {
+  background-color: #101317 !important;
+  color: #eef2f7 !important;
+  border-color: #313a44 !important;
+}
+.dark [role="dialog"] input::placeholder, .dark [role="dialog"] textarea::placeholder { color: #8995a4 !important; }
+.dark [role="dialog"] :is(label, h2, h3) { color: #f2f5f9; }
+.dark [role="dialog"] :is(input,select,textarea):focus { outline: 2px solid rgba(34,197,94,.25); outline-offset: 1px; }
+.hs-finance-page .hs-badge-pending { color: #b9ccf5 !important; background: rgba(59,130,246,.13) !important; border-color: rgba(59,130,246,.25) !important; }
+.hs-finance-page .hs-admin-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.hs-finance-page .hs-admin-table :is(th,td) { padding: 15px 17px; vertical-align: middle; }
+.hs-finance-page .hs-admin-table th { white-space: nowrap; }
+.hs-finance-page .hs-filter-panel :is(input,select) { min-height: 44px; background: #11161a; color: #eef2f7; }
+.hs-finance-page .hs-table-card { border-radius: 18px; overflow: hidden; }
+.hs-deposit-page [role="alert"], .hs-deposit-page .hs-deposit-notice { color: #90bcfa !important; background: rgba(59,130,246,.09); border-color: rgba(59,130,246,.3) !important; }
+.hs-deposit-page img { max-width: 100%; }
+@media(max-width:760px) {
+  .dark [role="dialog"], .dark .hs-dialog { width: min(100% - 20px, 640px); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 20px !important; }
+  .hs-finance-page .hs-admin-table { min-width: 850px; }
+  .hs-finance-page .hs-table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+}
+@media (prefers-reduced-motion: reduce) { .hs-finance-page *, .dark [role="dialog"] * { animation: none !important; transition-duration: 0.01ms !important; } }
+
+/* Only wallet-address QR is verified locally. Other provider-specific QR files are not official. */
+.hs-deposit-page img[src*='/payment-qr/']:not([src*='usdt-bep20']) { display: none !important; }
+
+/* V8.3 deposit review statuses: blue pending, green approved, quiet red rejected. */
+.hs-deposit-state { display: inline-flex; align-items: center; padding: .3rem .7rem; border-radius: .6rem; border: 1px solid transparent; font-size: .78rem; font-weight: 650; white-space: nowrap; }
+.hs-deposit-pending { color: #9bcdf7; background: rgba(43,113,180,.12); border-color: rgba(65,138,216,.30); }
+.hs-deposit-approved { color: #82d7b1; background: rgba(30,145,95,.12); border-color: rgba(50,166,108,.3); }
+.hs-deposit-rejected { color: #f0aaaa; background: rgba(191,67,67,.09); border-color: rgba(200,76,76,.27); }

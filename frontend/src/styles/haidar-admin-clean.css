@@ -1,0 +1,19 @@
+/* Dashboard presentation only. No application/business logic touched. */
+.hs-admin-ui { --hs-line:rgba(133,150,146,.2);--hs-card:rgba(115,135,128,.065); width:100%; min-width:0; padding:clamp(8px,1.6vw,24px); }
+.hs-admin-ui :is(h1,h2,h3) {letter-spacing:-.025em;line-height:1.45;}
+.hs-admin-ui h1{font-size:clamp(1.5rem,2vw,2.1rem);font-weight:750;margin-bottom:16px;}
+.hs-admin-ui :is(.card,[class*="rounded-xl"],[class*="rounded-2xl"]) {border-color:var(--hs-line);box-shadow:none!important;}
+.hs-admin-ui :is(.card,section[class*="border"],article[class*="border"]) {padding:clamp(14px,1.5vw,24px);}
+.hs-admin-ui :is(input,select,textarea){min-height:40px;border-radius:10px;max-width:100%;}
+.hs-admin-ui :is(button,a){-webkit-tap-highlight-color:transparent;}
+.hs-admin-ui table{border-collapse:separate;border-spacing:0;width:100%;font-size:.88rem;}
+.hs-admin-ui th{text-align:start;white-space:nowrap;font-size:.78rem;letter-spacing:.01em;font-weight:650;}
+.hs-admin-ui :is(td,th){padding:12px 14px;border-bottom:1px solid var(--hs-line);vertical-align:middle;}
+.hs-admin-ui tr:last-child td{border-bottom:0;}
+.hs-admin-ui :is(.overflow-x-auto,.overflow-hidden){max-width:100%;}
+.hs-admin-ui img {object-fit:contain;}
+.hs-admin-ui :is([class*="grid-cols"],[class*="flex"]){min-width:0;}
+@media(max-width:767px){.hs-admin-ui{padding:8px 0 28px;}.hs-admin-ui :is(td,th){padding:10px 9px;}.hs-admin-ui h1{font-size:1.5rem;}}
+/* Admin receives zero decorative motion while leaving functionality intact. */
+.hs-admin-ui *, .hs-admin-ui *::before,.hs-admin-ui *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;}
+@media(prefers-reduced-motion:reduce){.hs-admin-ui *{scroll-behavior:auto!important}}

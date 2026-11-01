@@ -1,0 +1,26 @@
+# Backend (Laravel)
+/backend/vendor/
+/backend/node_modules/
+/backend/.env
+/backend/storage/logs/*
+!/backend/storage/logs/.gitignore
+/backend/storage/framework/cache/*
+/backend/storage/framework/sessions/*
+/backend/storage/framework/views/*
+
+# Frontend (React/Vite)
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.env
+/frontend/.env.production
+
+# Bot (Node.js)
+/bot/node_modules/
+/bot/.env
+
+# General
+.DS_Store
+Thumbs.db
+*.log
+*.zip
+*.tar.gz

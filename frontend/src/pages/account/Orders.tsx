@@ -1,0 +1,225 @@
+import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { orderApi } from '@/api/client';
+import EmptyState from '@/components/EmptyState';
+import PageTransition from '@/components/PageTransition';
+import { formatPrice, formatDateTime } from '@/utils/format';
+import { useI18n } from '@/i18n';
+import Breadcrumbs from '@/components/Breadcrumbs';
+
+// MARKETLLY-ORDER-DETAILS-V1
+function OrderDetails({ order }: { order: any }) {
+  const [open, setOpen] = useState(false);
+  const [details, setDetails] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  const data = details ?? order;
+  // MARKETLLY-ORDER-PROVIDER-DETAILS-V2
+  const providerItems = data.items ?? order.items ?? [];
+  const providerStatuses = providerItems
+    .filter((item: any) => item.oranos_order_id)
+    .map((item: any) => item.oranos_status)
+    .filter(Boolean);
+
+  const providerStatus =
+    data.oranos_status ??
+    (providerStatuses.length === 1 ? providerStatuses[0] : null);
+
+  const providerStatusText =
+    providerStatus === 'accept' ? 'تم التنفيذ بنجاح' :
+    providerStatus === 'wait' ? 'بانتظار التنفيذ' :
+    providerStatus === 'reject' ? 'تعذّر تنفيذ الطلب' :
+    'قيد المتابعة';
+
+  const completedAt =
+    data.completed_at ??
+    data.fulfilled_at ??
+    data.processed_at ??
+    (data.status === 'completed' ? data.updated_at : null);
+
+  const duration = (() => {
+    if (data.oranos_execution_seconds != null) {
+      const seconds = Number(data.oranos_execution_seconds);
+      return Number.isFinite(seconds) && seconds >= 0
+        ? `${seconds} ثانية`
+        : null;
+    }
+    if (!completedAt || !data.created_at) return null;
+    const seconds = Math.round(
+      (new Date(completedAt).getTime() -
+       new Date(data.created_at).getTime()) / 1000
+    );
+    return Number.isFinite(seconds) && seconds >= 0
+      ? `${Math.floor(seconds / 60)} دقيقة و${seconds % 60} ثانية`
+      : null;
+  })();
+
+  const dateText = (value: any) =>
+    value ? new Date(value).toLocaleString('ar-SY') : 'غير متوفر';
+
+  const load = async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || details || busy) return;
+
+    setBusy(true);
+    setError(false);
+    try {
+      const response = await orderApi.show(order.id);
+      const body = response.data?.data ?? response.data;
+      setDetails(body?.order ?? body);
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 border-t border-gray-200 dark:border-white/10 pt-3">
+      <button
+        type="button"
+        onClick={load}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-3 rounded-xl px-3 py-3 text-sm font-medium text-emerald-600 dark:text-green-400 bg-gray-50 dark:bg-white/5 hover:bg-emerald-50 dark:hover:bg-white/10"
+      >
+        <span>تفاصيل الطلب #{order.id}</span>
+        <span>{open ? '−' : '+'}</span>
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3 rounded-xl border border-gray-200 dark:border-white/10 p-4 text-sm text-gray-800 dark:text-gray-200">
+          {busy && <p>جاري تحميل التفاصيل...</p>}
+          {error && <p>تعذّر جلب التفاصيل الإضافية؛ المعلومات الأساسية ظاهرة.</p>}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>رقم الطلب: <strong>#{data.id ?? order.id}</strong></div>
+            <div>الحالة: <strong>{data.status ?? order.status}</strong></div>
+            <div>وقت إنشاء الطلب: <strong>{dateText(data.created_at ?? order.created_at)}</strong></div>
+            <div>وقت آخر تحديث: <strong>{dateText(data.updated_at)}</strong></div>
+            <div>وقت الاكتمال المسجل: <strong>{dateText(completedAt)}</strong></div>
+            <div>حالة التنفيذ: <strong>{providerStatusText}</strong></div>
+            <div>
+              {data.oranos_execution_seconds != null
+                ? 'مدة التنفيذ'
+                : 'المدة التقريبية من إنشاء الطلب إلى تسجيل اكتماله'}:
+              <strong> {duration ?? 'غير متوفرة'}</strong>
+            </div>
+            <div>المبلغ الإجمالي: <strong>{formatPrice(data.total ?? order.total)}</strong></div>
+          </div>
+
+          {(data.items ?? order.items ?? []).map((item: any, index: number) => (
+            <div key={item.id ?? index} className="border-t border-gray-200 dark:border-white/10 pt-3">
+              <div className="font-semibold">
+                {item.product?.name ?? item.product_name ?? 'منتج'} × {item.quantity}
+              </div>
+              <div className="mt-1">
+                سعر الوحدة: {formatPrice(item.unit_price)} —
+                الإجمالي: {formatPrice(Number(item.unit_price) * Number(item.quantity))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+export default function Orders() {
+  const { t } = useI18n();
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    orderApi.list()
+      .then((r) => setOrders(r.data.data ?? []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <span className="w-8 h-8 rounded-full border-2 border-green-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <PageTransition className="max-w-4xl mx-auto w-full space-y-6">
+      <Breadcrumbs
+        items={[
+          { label: t('nav.home'), link: '/' },
+          { label: t('nav.dashboard'), link: '/dashboard' },
+          { label: t('orders.title') },
+        ]}
+      />
+      <h1 className="text-h1 text-gray-900 dark:text-ink-900 text-center mt-4">{t('orders.title')}</h1>
+
+      {orders.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" strokeLinecap="round" />
+              <rect x="9" y="3" width="6" height="4" rx="1" />
+            </svg>
+          }
+          title={t('orders.empty')}
+          description="When you place your first order, it will appear here with real-time status updates. Browse the catalog to get started."
+          action={{ label: t('home.browseProducts'), to: '/products' }}
+        />
+      ) : (
+        <div className="space-y-4">
+          {orders.map((order, i) => (
+            <motion.div
+              key={order.id}
+              className="card-pad"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05, duration: 0.3 }}
+            >
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="text-body font-semibold text-gray-900 dark:text-ink-900">
+                    {t('orders.orderNumber')}{order.id}
+                  </h3>
+                  <p className="text-small text-gray-600 dark:text-ink-500">
+                    {formatDateTime(order.created_at)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className={`badge-${order.status}`}>{t(`orders.statuses.${order.status.toLowerCase()}`)}</span>
+                  <p className="text-h3 text-green-400 mt-1 tabular-nums">
+                    {formatPrice(order.total)}
+                  </p>
+                </div>
+              </div>
+
+              {order.items?.length > 0 && (
+                <div className="border-t border-ink-200 pt-3 space-y-2">
+                  {order.items.map((item: any) => (
+                    <div key={item.id} className="flex justify-between text-small">
+                      <span className="text-gray-700 dark:text-ink-700">
+                        {item.product?.name ?? 'Product'} × {item.quantity}
+                      </span>
+                      <span className="text-gray-600 dark:text-ink-600 tabular-nums">
+                        {formatPrice(Number(item.unit_price) * item.quantity)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {order.notes && !/(?:oranos|أورانوس|اورانوس)/i.test(order.notes) && (
+                <p className="text-micro text-gray-600 dark:text-ink-500 mt-2 pt-2 border-t border-ink-200">
+                  {order.notes}
+                </p>
+              )}
+              <OrderDetails order={order} />
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </PageTransition>
+  );
+}

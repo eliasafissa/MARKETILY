@@ -1,0 +1,91 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\VipLevel;
+use App\Models\Product;
+use App\Models\Setting;
+
+class CatalogPricing
+{
+    public static function percentageFor(VipLevel $level): float
+    {
+        if ($level === VipLevel::None) return 0.0;
+        $raw = (float) Setting::get($level->value . '_discount_percent', 0);
+        return min(100.0, max(0.0, $raw));
+    }
+
+    /** All values remain USD. Provider products always have a cost floor. */
+    public static function calculate(float $listPrice, float $providerCost, float $percent, bool $provider): float
+    {
+        if (! is_finite($listPrice) || $listPrice <= 0 || ! is_finite($percent)) {
+            throw new \DomainException('Invalid product price or VIP discount.');
+        }
+        if ($provider && (! is_finite($providerCost) || $providerCost <= 0 || $listPrice + 0.00001 < $providerCost)) {
+            throw new \DomainException('Provider cost is invalid or exceeds the selling price.');
+        }
+        $percent = max(0.0, min(100.0, $percent));
+        $discounted = round($listPrice * (1 - $percent / 100), 4);
+        return $provider ? max(0, $providerCost, $discounted) : max(0.01, $discounted);
+    }
+
+    /** Exact 12-place quote; staged for checkout integration. */
+    public static function exactForProduct(Product $product, VipLevel $level, ?string $storePrice = null): string
+    {
+        $provider = $product->oranos_product_id !== null;
+        $base = PreciseMoney::decimal((string) $product->base_price);
+        $regular = PreciseMoney::decimal((string) $product->getRawOriginal('price'));
+
+        // Use provider cost for automatically priced products.
+        // Never add markup twice to manually overridden prices.
+        if ($provider && ($product->pricing_mode ?? 'auto') === 'auto' && $storePrice === null) {
+            $percent = PreciseMoney::decimal((string) Setting::get('oranos_markup_percent', 20));
+            $regular = PreciseMoney::providerWithMarkup($base, $percent);
+        } elseif ($storePrice !== null) {
+            $regular = PreciseMoney::decimal($storePrice);
+        }
+
+        if (PreciseMoney::compare($regular, '0') <= 0) {
+            throw new \DomainException('Invalid product price.');
+        }
+
+        $vip = PreciseMoney::decimal((string) Setting::get($level->value . '_discount_percent', 0));
+
+        if ($provider) {
+            if (PreciseMoney::compare($base, '0') <= 0 || PreciseMoney::compare($regular, $base) < 0) {
+                throw new \DomainException('Provider cost exceeds selling price.');
+            }
+
+            return PreciseMoney::providerVipPrice($regular, $base, $vip);
+        }
+
+        $discounted = PreciseMoney::sub(
+            $regular,
+            PreciseMoney::percentOf($regular, $vip)
+        );
+
+        return PreciseMoney::compare($discounted, '0') > 0
+            ? $discounted
+            : PreciseMoney::decimal('0.01');
+    }
+    public static function forProduct(Product $product, VipLevel $level, ?float $listPrice = null): float
+    {
+        $isProvider = $product->oranos_product_id !== null;
+        return self::calculate(
+            $listPrice ?? (float) $product->price,
+            (float) $product->base_price,
+            self::percentageFor($level),
+            $isProvider,
+        );
+    }
+
+    public static function display(Product $product, VipLevel $level): Product
+    {
+        $regular = (float) $product->price;
+        $effective = self::forProduct($product, $level);
+        $product->setAttribute('regular_price', round($regular, 4));
+        $product->setAttribute('price', $effective);
+        $product->setAttribute('vip_discount_percent', self::percentageFor($level));
+        return $product;
+    }
+}

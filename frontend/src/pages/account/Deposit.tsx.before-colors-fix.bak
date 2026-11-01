@@ -1,0 +1,201 @@
+import { FormEvent, useEffect, useState } from 'react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import { depositApi, paymentMethodsApi } from '@/api/client';
+import { useCurrency } from '@/currency';
+import toast from 'react-hot-toast';
+import PageTransition from '@/components/PageTransition';
+import Breadcrumbs from '@/components/Breadcrumbs';
+import { useI18n } from '@/i18n';
+import { Info, ChevronLeft, ClipboardCopy, FileImage, Hash, History, Landmark, Send, ShieldCheck, UploadCloud, Wallet } from 'lucide-react';
+
+type Method = {
+  id: string; label: string; enabled: boolean; receiver: string | null;
+  other_receivers: string[]; verification: string; currency: string;
+  syp_per_usd: number | null; minimum_transfer: number; network: string | null; notice: string | null;
+  disabled_reason?: string | null;
+};
+type CreatedDeposit = {
+  amount_usd: number; input_currency: 'USD' | 'SYP'; input_amount: number;
+  deposit: { reference: string; method: string; transfer_amount: number; transfer_currency: string;
+    wallet_address: string; network?: string; rate_snapshot: number | null; notice?: string; };
+};
+// HAIDAR-PAYMENT-FIELDS-V6: exactly one method-specific reference plus receipt.
+const VERIFIED_USDT_RECEIVER = '0x5be7d89e6e0d14f7007a2c516bf53f4b2fa278e3';
+const inputClass = 'w-full min-w-0 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-emerald-500/65 focus:ring-2 focus:ring-emerald-500/10';
+const panelClass = 'rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-6';
+function copy(value: string) { void navigator.clipboard.writeText(value).then(() => toast.success('تم نسخ العنوان')).catch(() => toast.error('تعذّر النسخ')); }
+function money(n: number, unit: string) { return `${n.toLocaleString('en-US', {maximumFractionDigits: 6})} ${unit === 'SYP' ? 'ل.س' : unit}`; }
+
+export default function Deposit() {
+  const { t } = useI18n();
+  const { id: resumeId } = useParams();
+  const navigate = useNavigate();
+  const { rate } = useCurrency();
+  const [methods, setMethods] = useState<Method[]>([]);
+  const [method, setMethod] = useState('');
+  const [amount, setAmount] = useState('');
+  const [reference, setReference] = useState('');
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [resumeStatus, setResumeStatus] = useState('');
+  const [stage, setStage] = useState<CreatedDeposit | null>(null);
+  const [receiverConfirmed, setReceiverConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (!resumeId) return;
+    setResumeStatus('لم تعد الطلبات غير المكتملة قابلة للاستكمال. ابدأ إيداعاً جديداً وأرسل الإثبات كاملاً.');
+  }, [resumeId]);
+
+  useEffect(() => {
+    paymentMethodsApi.list().then(({data}) => {
+      const list = (data.methods ?? []) as Method[];
+      setMethods(list);
+      setMethod(list.find(m => m.enabled)?.id ?? '');
+    }).catch(() => setFetchError('تعذّر تحميل طرق الدفع. تأكد من تشغيل الخادم.'));
+  }, []);
+
+  const selected = methods.find(m => m.id === (stage?.deposit.method || method));
+  const currentMethod = stage?.deposit.method || method;
+  const isSyrianMethod = currentMethod === 'sham_cash' || currentMethod === 'syriatel_cash';
+  const paymentCurrency: 'USD' | 'SYP' = isSyrianMethod ? 'SYP' : 'USD';
+  const enteredCurrency: 'USD' | 'SYP' = stage?.input_currency ?? paymentCurrency;
+  const paymentLabel = enteredCurrency === 'SYP' ? 'ليرة سورية (ل.س)' : 'دولار أمريكي (USD)';
+  const formatServerError = (err: any, fallback: string): string => {
+    const fields = err?.response?.data?.errors;
+    const first = fields && Object.values(fields).flat().find(value => typeof value === 'string');
+    if (typeof first === 'string') return first;
+    if (err?.response?.status === 413) return 'حجم الإيصال كبير جداً. اختر صورة بحجم أقل من 5 ميغابايت.';
+    if (err?.response?.status === 401) return 'انتهت صلاحية تسجيل الدخول؛ سجل الدخول مجدداً.';
+    return err?.response?.data?.message ?? err?.message ?? fallback;
+  };
+  const isUSDT = currentMethod === 'usdt';
+  const referenceLabel = currentMethod === 'usdt' ? 'معرّف المعاملة (TxID)' : (currentMethod === 'binance_pay' || currentMethod === 'c_wallet' ? 'رقم الطلب' : 'رقم عملية التحويل');
+  const receiver = stage?.deposit.wallet_address ?? selected?.receiver ?? '';
+  const qrImage = isUSDT && receiver.trim().toLowerCase() === VERIFIED_USDT_RECEIVER ? 'usdt-bep20.png' : null;
+
+  const create = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy || !selected?.enabled) return;
+    setSubmitError('');
+    setBusy(true);
+    try {
+      const {data} = await depositApi.preview({method, amount: Number(amount), currency: paymentCurrency});
+      setStage(data as CreatedDeposit);
+      setReceiverConfirmed(false);
+      toast('هذه معاينة فقط؛ لا يُسجّل الإيداع قبل إرسال الإثبات.', { duration: 5500 });
+    } catch (err: any) {
+      toast.error(formatServerError(err, 'تعذّر عرض بيانات التحويل'));
+    } finally { setBusy(false); }
+  };
+
+  const submitProof = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy || !stage) return;
+    const invalid = !reference.trim() ? `أدخل ${referenceLabel}.`
+      : !receipt ? 'اختر صورة الإيصال قبل إرسال الطلب.'
+      : !['image/png', 'image/jpeg', 'image/webp'].includes(receipt.type) ? 'صيغة الإيصال غير مدعومة. استخدم PNG أو JPG أو WebP.'
+      : receipt.size > 5 * 1024 * 1024 ? 'صورة الإيصال تتجاوز الحد الأقصى 5 ميغابايت.'
+      : !receiverConfirmed ? 'يرجى تأكيد التحقق من حساب الاستلام والمبلغ قبل الإرسال.'
+      : '';
+    if (invalid) { setSubmitError(invalid); toast.error(invalid); return; }
+    const proofFile = receipt;
+    if (!proofFile) { setSubmitError('اختر صورة الإيصال.'); return; }
+    setSubmitError('');
+    setBusy(true);
+    try {
+      const payload = new FormData();
+      payload.append('amount', String(stage.input_amount));
+      payload.append('method', stage.deposit.method);
+      payload.append('currency', stage.input_currency);
+      payload.append('payment_reference', reference.trim());
+      payload.append('receipt', proofFile);
+      payload.append('receiver_confirmed', '1');
+      payload.append('expected_receiver', stage.deposit.wallet_address);
+      payload.append('expected_transfer_amount', String(stage.deposit.transfer_amount));
+      payload.append('expected_transfer_currency', stage.deposit.transfer_currency);
+      await depositApi.create(payload);
+      toast.success('تم إرسال الإيصال للمراجعة. يُضاف الرصيد فقط بعد تأكيد وصول الحوالة وموافقة الإدارة.');
+      setStage(null); setReceiverConfirmed(false); setAmount(''); setReference(''); setReceipt(null);
+      navigate('/dashboard/deposits');
+    } catch (err: any) {
+      const message = formatServerError(err, 'تعذّر إرسال إثبات التحويل');
+      setSubmitError(message);
+      toast.error(message);
+    } finally { setBusy(false); }
+  };
+
+  return <PageTransition className="min-h-screen bg-[var(--bg-page)] px-3 py-7 text-[var(--text-body)] sm:px-6 sm:py-12">
+    <div className="mx-auto w-full max-w-3xl space-y-5" dir="rtl">
+      <Breadcrumbs items={[{label: t('nav.home'), link: '/'}, {label: t('nav.dashboard'), link: '/dashboard'}, {label: t('deposit.title')}]} />
+      <header className="rounded-2xl border border-emerald-500/20 bg-gradient-to-l from-emerald-950/45 to-[#131a1d] p-5 sm:p-7">
+        <div className="flex items-center gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400"><Wallet size={24}/></span>
+          <div className="min-w-0"><h1 className="text-xl font-bold tracking-tight sm:text-2xl">{stage ? (selected?.label ?? 'إثبات الإيداع') : 'إيداع رصيد'}</h1>
+            <p className="mt-1 text-sm text-white/55">{stage ? 'التحويل ثم إرسال الإثبات كاملاً' : 'لا يُسجّل أي إيداع قبل إرسال الإثبات'}</p></div>
+        </div>
+      </header>
+
+      {fetchError && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{fetchError}</div>}
+      {resumeStatus && <div className={panelClass}>{resumeStatus} — <Link to="/dashboard/deposits" className="text-emerald-400 underline">عرض السجل</Link></div>}
+
+      {!stage && !resumeStatus ? <form onSubmit={create} className={`${panelClass} space-y-5`}>
+        <h2 className="text-lg font-semibold">بيانات الإيداع</h2>
+        <fieldset><legend className="mb-3 text-sm text-white/70">طريقة الدفع</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {methods.map(m => <label key={m.id} className={`flex items-center gap-3 rounded-xl border p-4 ${!m.enabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'} ${method === m.id ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-white/10 bg-white/[0.025]'}`}>
+              <input type="radio" name="payment_method" className="accent-emerald-500" disabled={!m.enabled} checked={method === m.id} onChange={() => { setMethod(m.id); setAmount(''); setSubmitError(''); }}/>
+              <span className="min-w-0"><strong className="block text-sm">{m.label}</strong><small className="text-xs text-white/50">{m.enabled ? 'تحويل يدوي مع مراجعة الإيصال' : m.disabled_reason ?? 'غير متاحة حالياً'}</small></span>
+            </label>)}
+          </div>
+        </fieldset>
+        <label className="block space-y-2"><span className="text-sm text-white/75">مبلغ التحويل ({paymentLabel})</span>
+          <input className={inputClass} type="number" min={isSyrianMethod ? '1' : '0.01'} step={isSyrianMethod ? '1' : '0.01'} max={isSyrianMethod ? '1000000000' : '1000000'} required value={amount} onChange={e => setAmount(e.target.value)}/>
+          {amount && rate ? <small className="block text-blue-200">{isSyrianMethod ? `الرصيد بالدولار بعد موافقة الأدمن: ${(Number(amount)/rate).toFixed(2)} USD (تقريبي)` : `يعادل تقريباً ${Math.round(Number(amount)*rate).toLocaleString('en-US')} ل.س`}</small> : null}
+          {isSyrianMethod && <small className="block text-white/55">شام كاش وسيرياتيل كاش: المبلغ الذي تدخله وتحوّله هو بالليرة السورية، وليس بالدولار.</small>}
+        </label>
+        {selected?.notice && <p className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm leading-7 text-blue-200 whitespace-pre-line"><Info className="ml-2 inline-block" size={16}/>{selected.notice}</p>}
+        {selected?.minimum_transfer ? <p className="text-xs text-white/50">الحد الأدنى للتحويل: {selected.minimum_transfer.toLocaleString('en-US')} ل.س</p> : null}
+        <button className="w-full rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50" disabled={busy || !selected?.enabled}>{busy ? 'جارٍ التحضير...' : 'عرض بيانات التحويل (بدون تسجيل إيداع)'}</button>
+      </form> : stage ? <div className="space-y-4">
+        <section className={`${panelClass} space-y-5`}>
+          <div className="flex items-start gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-full border border-emerald-400 text-sm font-bold text-emerald-400">2</span>
+            <div><h2 className="text-lg font-semibold">التحويل ثم إثباته</h2><p className="mt-1 text-xs text-blue-200">هذه معاينة فقط وليست إيداعاً مسجلاً — قيمة الشحن بعد الموافقة: {Number(stage.amount_usd).toLocaleString('en-US')} دولار</p></div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-[#151d22] p-4 sm:p-5">
+            <h3 className="mb-4 text-sm font-semibold">بيانات المستلم</h3>
+            <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center">
+              <div className="space-y-4 min-w-0">
+                <div className="space-y-2"><span className="block text-xs text-white/50">{isUSDT ? 'عنوان محفظة الاستلام' : 'رقم أو عنوان حساب الاستلام'}</span>
+                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 p-2.5"><span dir="ltr" className="min-w-0 flex-1 break-all text-left text-xs font-medium sm:text-sm">{receiver}</span><button type="button" title="نسخ العنوان" aria-label="نسخ العنوان" onClick={() => copy(receiver)} className="shrink-0 rounded-lg bg-emerald-600/20 p-2 text-emerald-300 hover:bg-emerald-600/30"><ClipboardCopy size={17}/></button></div>
+                </div>
+                {selected?.other_receivers?.map(account => <div key={account} className="flex items-center gap-2 text-xs"><span dir="ltr" className="flex-1 break-all text-left">{account}</span><button type="button" onClick={() => copy(account)} className="rounded-lg bg-white/10 px-3 py-2">نسخ</button></div>)}
+                <div className="space-y-2"><span className="block text-xs text-white/50">المبلغ المطلوب تحويله بالضبط</span><div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3"><Landmark size={17} className="text-emerald-400"/><strong className="text-base" dir="ltr">{money(Number(stage.deposit.transfer_amount), stage.deposit.transfer_currency)}</strong></div></div>
+                {stage.deposit.network && <p className="text-xs text-blue-200">الشبكة المطلوبة: {stage.deposit.network}</p>}
+              </div>
+              <div className="flex flex-col items-center gap-2 text-center">
+                {qrImage ? <img src={`/payment-qr/${qrImage}`} alt="رمز حساب الاستلام" className="h-40 w-40 rounded-xl bg-white object-contain p-3"/> : <div className="flex h-40 w-40 items-center justify-center rounded-xl border border-dashed border-white/20 text-center text-xs text-white/45">استخدم العنوان القابل للنسخ</div>}
+                <small className="text-xs text-white/45">تأكد من تطابق العنوان قبل التحويل</small>
+              </div>
+            </div>
+          </div>
+          {selected?.notice && <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm leading-7 text-blue-100 whitespace-pre-line"><Info size={17} className="ml-2 inline-block text-blue-400"/>{selected.notice}</div>}
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.025] p-4 text-sm leading-7"><input className="mt-1 accent-emerald-500" type="checkbox" checked={receiverConfirmed} onChange={e => setReceiverConfirmed(e.target.checked)}/><span>أؤكد أنني تحققت من حساب الاستلام والمبلغ والشبكة إن وجدت، وأن بيانات إثبات التحويل صحيحة.</span></label>
+        </section>
+        <form onSubmit={submitProof} className={`${panelClass} space-y-5`}>
+          <div><h3 className="text-lg font-semibold">إثبات التحويل</h3><p className="mt-1 text-xs leading-6 text-white/50">أدخل الرقم الظاهر في تطبيق الدفع، ثم ارفع صورة الإيصال. لا يُضاف الرصيد إلا بعد موافقة الإدارة.</p></div>
+          <label className="block space-y-2"><span className="flex items-center gap-2 text-sm text-white/75"><Hash size={16}/>{referenceLabel} *</span><input dir="ltr" className={inputClass} maxLength={190} value={reference} onChange={e => setReference(e.target.value)} placeholder={isUSDT ? '0x…' : 'الرقم الظاهر في تطبيق الدفع'}/></label>
+          <label className="block space-y-2"><span className="flex items-center gap-2 text-sm text-white/75"><FileImage size={16}/>صورة الإيصال *</span><span className="flex min-h-28 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-emerald-500/35 bg-emerald-500/[0.035] p-4 text-center"><UploadCloud size={25} className="text-emerald-400"/><span className="text-sm">{receipt ? receipt.name : 'اضغط لاختيار صورة الإيصال'}</span><small className="text-xs text-white/45">صورة JPG أو PNG أو WebP — الحد الأقصى 5 ميغابايت</small></span><input className="block w-full cursor-pointer rounded-lg border border-white/10 bg-black/20 p-2 text-xs text-white/80 file:me-3 file:rounded-lg file:border-0 file:bg-emerald-700 file:px-3 file:py-2 file:text-white" type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { setReceipt(e.target.files?.[0] ?? null); setSubmitError(''); }}/>
+          </label>
+          {isUSDT && <p className="text-xs leading-6 text-blue-200">تحويل USDT على BEP-20 يراجع يدوياً بعد مطابقة معرّف الشبكة وحركة المحفظة.</p>}
+          {submitError && <p role="alert" aria-live="assertive" className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-200">{submitError}</p>}
+          <p className="text-xs text-blue-200">اضغط إرسال بعد كتابة رقم العملية واختيار الإيصال وتأكيد بيانات الاستلام؛ إذا نقص شيء ستظهر رسالة توضيحية ولن يُحفظ إيداع.</p>
+          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-4 text-sm font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-45" disabled={busy}><Send size={17}/>{busy ? 'جارٍ إرسال الإثبات...' : 'إرسال طلب الإيداع — بانتظار المراجعة'}</button>
+        </form>
+        <button type="button" className="flex w-full items-center justify-center gap-2 py-3 text-sm text-white/55 hover:text-white" onClick={() => { setStage(null); setReceiverConfirmed(false); setReceipt(null); setReference(''); }}><ChevronLeft size={16}/>العودة دون تسجيل إيداع</button>
+        <Link to="/dashboard/deposits" className="flex items-center justify-center gap-2 py-2 text-center text-sm text-emerald-400 hover:underline"><History size={16}/>عرض الإيداعات السابقة</Link>
+      </div> : null}
+    </div>
+  </PageTransition>;
+}

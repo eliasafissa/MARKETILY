@@ -1,0 +1,243 @@
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { adminDashboardApi } from '@/api/client';
+import PageTransition from '@/components/PageTransition';
+import { formatPrice } from '@/utils/format';
+import { useI18n } from '@/i18n';
+import { ArrowUpRight } from 'lucide-react';
+
+const usdValue = (value: number | string) => '$' + Number(value).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+
+interface HealthCheck {
+  status: 'ok' | 'warn' | 'error';
+  message: string;
+}
+
+function StatusDot({ status }: { status: HealthCheck['status'] }): ReactNode {
+  const color = {
+    ok: 'bg-green-500',
+    warn: 'bg-status-pending',
+    error: 'bg-status-rejected',
+  }[status];
+  return (
+    <span
+      className={`inline-block w-2.5 h-2.5 rounded-full ${color} ${status === 'ok' ? 'animate-pulse' : ''}`}
+      aria-label={status}
+    />
+  );
+}
+
+// Stagger reveal
+const reveal = (i: number) => ({
+  initial: { opacity: 0, y: 24 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: '-40px' },
+  transition: { delay: i * 0.06, duration: 0.55, ease: [0.16, 1, 0.3, 1] as const },
+});
+
+export default function AdminDashboard() {
+  const [stats, setStats] = useState<any>(null);
+  const [health, setHealth] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const { t, locale } = useI18n();
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const [statsRes, healthRes] = await Promise.all([
+          adminDashboardApi.stats(),
+          adminDashboardApi.health().catch(() => null),
+        ]);
+        if (!alive) return;
+        setStats(statsRes.data);
+        if (healthRes) setHealth(healthRes.data);
+      } catch (err) { console.error('Dashboard refresh failed', err); }
+      finally { if (alive) setLoading(false); }
+    };
+    void load();
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 25000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <span className="w-8 h-8 rounded-full border-2 border-green-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  const s = stats?.stats ?? {};
+
+  // Server-calculated totals only; no invented trend percentages.
+  const label = (ar: string, en: string) => locale === 'ar' ? ar : en;
+  const tiles = [
+    { key: 'admin.revenue',             value: formatPrice(s.total_revenue ?? 0), color: 'text-green-500', hero: true },
+    // MARKETLLY_CUSTOMER_BALANCE_TILE_V1
+    { key: 'customer_wallet_balance_usd', label: label('\u0625\u062c\u0645\u0627\u0644\u064a \u0623\u0631\u0635\u062f\u0629 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u064a\u0646 (\u0628\u062f\u0648\u0646 \u0627\u0644\u0623\u062f\u0645\u0646)', 'Total customer wallet balance (excluding admins)'), value: usdValue(s.customer_wallet_balance_usd ?? 0), color: 'text-emerald-700 dark:text-emerald-400', hero: false },
+    { key: 'admin.totalUsers',          value: s.total_users ?? 0, color: 'text-gray-900 dark:text-ink-900', hero: false },
+    { key: 'admin.pendingDeposits',     value: s.pending_deposits ?? 0, color: 'text-blue-400', hero: false },
+    { key: 'pending_deposits_amount_usd', label: 'رصيد الإيداعات بانتظار المراجعة (USD)', value: usdValue(s.pending_deposits_amount_usd ?? 0), color: 'text-blue-400', hero: false },
+    { key: 'deposits_history_count', label: 'كل الإيداعات المسجلة منذ بداية المتجر', value: s.deposits_history_count ?? 0, color: 'text-emerald-400', hero: false },
+    { key: 'approved_deposits_amount_usd', label: 'مجموع الإيداعات المقبولة تاريخياً (USD)', value: usdValue(s.approved_deposits_amount_usd ?? 0), color: 'text-emerald-400', hero: false },
+    { key: 'admin.pendingManualOrders', value: s.pending_manual_orders ?? 0, color: 'text-status-vip', hero: false },
+    { key: 'collected_payments', label: label('المبالغ المقبوضة', 'Collected payments'), value: formatPrice(s.collected_payments ?? 0), color: 'text-green-500', hero: false },
+    { key: 'completed_orders', label: label('الطلبات المكتملة', 'Completed orders'), value: s.completed_orders ?? 0, color: 'text-gray-900 dark:text-ink-900', hero: false },
+    { key: 'processing_orders', label: label('الطلبات قيد المعالجة', 'Processing orders'), value: s.processing_orders ?? 0, color: 'text-status-processing', hero: false },
+    { key: 'rejected_orders', label: label('الطلبات المرفوضة', 'Rejected orders'), value: s.rejected_orders ?? 0, color: 'text-status-rejected', hero: false },
+  ];
+
+  return (
+    <PageTransition className="space-y-10">
+      <motion.div {...reveal(0)}>
+        <p className="eyebrow mb-2">{t('admin.overview')}</p>
+        <h1 className="font-heading text-[clamp(2rem,4vw,3.25rem)] text-gray-900 dark:text-ink-900 leading-[1.05] text-balance">
+          {t('admin.dashboard')}
+        </h1>
+      </motion.div>
+
+      {/* Asymmetric KPI grid — first tile is hero, spans 2 cols + 2 rows */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3 md:gap-4">
+        {tiles.map((tile, i) => {
+          const isHero = tile.hero;
+          return (
+            <motion.div
+              key={tile.key}
+              {...reveal(i)}
+              whileHover={{ y: -4 }}
+              className={
+                isHero
+                  ? 'col-span-2 md:col-span-2 lg:row-span-2 group relative overflow-hidden rounded-2xl p-6 ' +
+                    'bg-white dark:bg-ink-100 ' +
+                    'border border-gray-200 dark:border-ink-200 shadow-sm ' +
+                    'hover:shadow-glow hover:border-green-500/40 transition-all duration-300'
+                  : 'col-span-1 group relative overflow-hidden rounded-2xl p-5 ' +
+                    'bg-white/70 dark:bg-ink-50/70 backdrop-blur-xl ' +
+                    'border border-white/10 dark:border-ink-200/50 ' +
+                    'shadow-sm hover:shadow-glow hover:border-green-500/30 hover:-translate-y-1 transition-all duration-300'
+              }
+            >
+              {/* Decorative gradient blob on hero */}
+              {isHero && (
+                <div className="pointer-events-none absolute -top-20 -end-20 w-60 h-60 rounded-full
+                                bg-green-500/20 dark:bg-green-500/10 blur-3xl" />
+              )}
+
+              <div className="relative">
+                <p className={`text-micro text-gray-500 dark:text-ink-500 uppercase tracking-wider mb-2 ${isHero ? 'mb-3' : ''}`}>
+                  {'label' in tile && tile.label ? tile.label : t(tile.key)}
+                </p>
+                <p className={`font-heading tabular-nums font-bold ${isHero ? 'text-5xl md:text-6xl' : 'text-3xl'} ${tile.color}`}>
+                  {tile.value ?? '—'}
+                </p>
+
+
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+
+      {/* Recent submitted deposit amounts in their actual payment currency. Full archive is paginated separately. */}
+      <section className="rounded-2xl border border-white/10 bg-[#11191c] p-5 sm:p-6" dir="rtl">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-xl font-bold text-white">آخر الإيداعات المرسلة للمراجعة</h2>
+            <p className="mt-1 text-sm text-white/55">المبلغ الذي أرسله العميل بعملة طريقة الدفع، مع قيمة الرصيد بالدولار. السجل الكامل محفوظ في صفحة الإيداعات.</p></div>
+          <Link className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300 hover:bg-emerald-500/20" to="/admin/deposits">عرض جميع الإيداعات</Link>
+        </div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-right text-sm">
+          <thead className="border-b border-white/10 text-white/55"><tr>
+            <th className="py-3 ps-3">الرقم والعميل</th><th className="py-3">طريقة الدفع</th>
+            <th className="py-3">المبلغ المرسل</th><th className="py-3">قيمة الرصيد (USD)</th><th className="py-3">الحالة</th>
+          </tr></thead><tbody className="divide-y divide-white/10 text-white/80">
+            {(stats?.recent_deposits ?? []).map((deposit: { id: number; customer: string; method: string; transfer_amount: string | number; transfer_currency: string; amount_usd: string; status: string }) => (
+              <tr key={deposit.id}>
+                <td className="py-3 ps-3"><Link to="/admin/deposits" className="text-emerald-300 hover:underline">#{deposit.id}</Link><small className="block text-white/55">{deposit.customer}</small></td>
+                <td className="py-3">{({sham_cash:'شام كاش ليرة',sham_cash_usd:'شام كاش دولار',syriatel_cash:'سيرياتيل كاش',c_wallet:'C Wallet',binance_pay:'Binance Pay',usdt:'USDT BEP-20'} as Record<string,string>)[deposit.method] ?? deposit.method}</td>
+                <td className="py-3 font-semibold" dir="ltr">{Number(deposit.transfer_amount).toLocaleString('en-US')} {deposit.transfer_currency === 'SYP' ? 'ل.س' : deposit.transfer_currency}</td>
+                <td className="py-3" dir="ltr">{usdValue(deposit.amount_usd)}</td>
+                <td className={`py-3 ${deposit.status === 'approved' ? 'text-emerald-400' : deposit.status === 'rejected' ? 'text-red-400' : 'text-blue-400'}`}>{deposit.status === 'approved' ? 'مقبول' : deposit.status === 'rejected' ? 'مرفوض' : 'بانتظار المراجعة'}</td>
+              </tr>
+            ))}
+            {(stats?.recent_deposits ?? []).length === 0 && <tr><td colSpan={5} className="py-6 text-center text-white/50">لا يوجد سجل إيداعات مرسلة.</td></tr>}
+          </tbody></table></div>
+      </section>
+
+      {/* Two-column asymmetric: System Health (2/3) + Recent Orders (1/3) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* System Health — wider */}
+        <motion.div {...reveal(0)} className="lg:col-span-2 card-pad">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="font-heading text-2xl text-gray-900 dark:text-ink-900">{t('admin.systemHealth')}</h2>
+              <p className="text-micro text-gray-500 dark:text-ink-500 mt-1">
+                {t('admin.liveInfra')} · {health?.app_env ?? 'unknown'} · DEBUG:{' '}
+                <span className={health?.app_debug ? 'text-status-rejected' : 'text-green-500'}>
+                  {String(health?.app_debug ?? '—')}
+                </span>
+              </p>
+            </div>
+            {health && (
+              <span className={`badge-${(['database','storage'] as const).every(k => health?.checks?.[k]?.status === 'ok') ? 'completed' : 'rejected'}`}>
+                {(['database','storage'] as const).every(k => health?.checks?.[k]?.status === 'ok') ? t('admin.allSystemsNormal') : t('admin.issuesDetected')}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(['database', 'storage'] as const).map((key, i) => {
+              const check: HealthCheck = health?.checks?.[key] ?? { status: 'warn', message: 'Not yet checked' };
+              const labelKey = `admin.${key}`;
+              return (
+                <motion.div
+                  key={key}
+                  {...reveal(i)}
+                  whileHover={{ y: -4 }}
+                  className="flex items-start gap-3 p-4 rounded-xl
+                             bg-gray-50/80 dark:bg-ink-100/40
+                             border border-gray-200/60 dark:border-ink-200/50
+                             hover:border-green-500/30 hover:shadow-glow transition-all duration-300"
+                >
+                  <StatusDot status={check.status} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-small font-medium text-gray-900 dark:text-ink-900">{t(labelKey)}</p>
+                    <p className="text-micro text-gray-500 dark:text-ink-500 truncate" title={check.message}>
+                      {check.message}
+                    </p>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
+
+        {/* Recent Orders — narrower, list-style */}
+        <motion.div {...reveal(1)} className="card-pad">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="font-heading text-2xl text-gray-900 dark:text-ink-900">{t('admin.recentOrders')}</h2>
+            <ArrowUpRight size={18} className="text-gray-400 dark:text-ink-500" />
+          </div>
+          <ul className="space-y-3">
+            {(stats?.recent_orders ?? []).slice(0, 5).map((o: any) => (
+              <li key={o.id} className="flex items-center justify-between gap-3 py-2 border-b border-gray-100 dark:border-ink-200/50 last:border-0">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-900 dark:text-ink-900 truncate">#{o.id}</p>
+                  <p className="text-micro text-gray-500 dark:text-ink-500 truncate">{o.user?.name ?? '—'}</p>
+                </div>
+                <div className="text-end">
+                  <p className="text-sm font-semibold text-green-500 tabular-nums">{formatPrice(o.total)}</p>
+                  <p className="text-micro text-gray-500 dark:text-ink-500">{new Date(o.created_at).toLocaleDateString()}</p>
+                </div>
+              </li>
+            ))}
+            {(stats?.recent_orders ?? []).length === 0 && (
+              <li className="text-center text-gray-500 dark:text-ink-500 py-6 text-sm">{t('admin.noOrdersYet')}</li>
+            )}
+          </ul>
+        </motion.div>
+      </div>
+    </PageTransition>
+  );
+}

@@ -1,0 +1,13 @@
+import { useState } from 'react';
+import { authApi } from '@/api/client';
+import toast from 'react-hot-toast';
+import PageTransition from '@/components/PageTransition';
+
+export default function VerifyEmail() {
+  const [busy, setBusy] = useState(false);
+  return <PageTransition className="mx-auto max-w-xl space-y-5 py-12 text-right" >
+    <h1 className="text-2xl font-bold">تأكيد البريد الإلكتروني</h1>
+    <p className="text-sm leading-7">اطلب رابط التأكيد على بريدك الإلكتروني، ثم افتح الرسالة واضغط الرابط. إذا كان SMTP غير مهيأ ستظهر رسالة واضحة.</p>
+    <button className="btn-accent disabled:opacity-50" disabled={busy} onClick={async()=>{setBusy(true);try{const {data}=await authApi.sendVerification();toast.success(data.message);}catch(err:any){toast.error(err.response?.data?.message??'تعذّر إرسال رسالة التأكيد');}finally{setBusy(false);}}}>{busy?'جارٍ الإرسال':'إرسال رابط التأكيد'}</button>
+  </PageTransition>;
+}
